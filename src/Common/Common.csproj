@@ -16,7 +16,11 @@
   </PropertyGroup>
   <ItemGroup>
 
+    <PackageReference Include="MessagePack" Version="2.5.171" />
+
     <PackageReference Include="Microsoft.Azure.NotificationHubs" Version="1.0.9" />
+
+    <PackageReference Include="System.Memory" Version="4.5.5" />
 
     <PackageReference Include="WindowsAzure.ServiceBus" Version="7.0.1" />
   </ItemGroup>

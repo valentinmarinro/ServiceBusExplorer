@@ -55,6 +55,9 @@ namespace ServiceBusExplorer
     using System.IO.Compression;
     using System.Web.UI.WebControls;
     using Abstractions;
+
+    using MessagePack;
+
     using ServiceBusConnectionStringBuilder = Microsoft.ServiceBus.ServiceBusConnectionStringBuilder;
 
     public enum BodyType
@@ -63,6 +66,19 @@ namespace ServiceBusExplorer
         String,
         Wcf,
         ByteArray
+    }
+
+    public static class ContentTypes
+    {
+        public const string MessagePack = "application/vnd.messagepack";
+        public const string Json = "application/json";
+    }
+
+    public static class ContentEncodings
+    {
+        public const string Gzip = "gzip";
+        public const string LZ4 = "lz4";
+        public const string Utf8 = "utf-8";
     }
 
     public class ServiceBusHelper
@@ -4763,13 +4779,16 @@ namespace ServiceBusExplorer
             }
             var inboundMessage = messageToRead.Clone();
             bool gzipDecompress = false;
+            bool messagePackLz4Decompress = false;
             try
             {
                 stream = inboundMessage.GetBody<Stream>();
                 if (messageToRead.Properties.ContainsKey("Content-Encoding"))
                 {
                     var encoding = inboundMessage.Properties["Content-Encoding"].ToString();
-                    gzipDecompress = encoding == "gzip";
+                    gzipDecompress = encoding == ContentEncodings.Gzip;
+                    messagePackLz4Decompress = string.Compare(inboundMessage.ContentType, ContentTypes.MessagePack, StringComparison.OrdinalIgnoreCase) == 0 &&
+                                               string.Compare(encoding, ContentEncodings.LZ4, StringComparison.OrdinalIgnoreCase) == 0;
                 }
                 if (stream != null)
                 {
@@ -4852,7 +4871,7 @@ namespace ServiceBusExplorer
                 {
                     try
                     {
-                        messageText = AttemptToReadByteArrayBody(messageToRead.Clone(), gzipDecompress);
+                        messageText = AttemptToReadByteArrayBody(messageToRead.Clone(), gzipDecompress, messagePackLz4Decompress);
                         bodyType = BodyType.ByteArray;
                     }
                     catch (Exception)
@@ -4928,11 +4947,26 @@ namespace ServiceBusExplorer
             return result;
         }
 
-        private string AttemptToReadByteArrayBody(BrokeredMessage brokeredMessage, bool compress)
+        private static readonly MessagePackSerializerOptions StandardOptionsWithCompressionLz4BlockArray = MessagePackSerializerOptions.Standard.WithCompression(MessagePackCompression.Lz4BlockArray);
+        private string AttemptToReadByteArrayBody(BrokeredMessage brokeredMessage, bool gzipCompress, bool messagePackLz4Compress)
         {
+            if (gzipCompress)
+            {
+                var gzipBody = brokeredMessage.GetBody<byte[]>();
+                return DecompressAsString(gzipBody);
+            }
+
+            if (messagePackLz4Compress)
+            {
+                var stream = brokeredMessage.GetBody<Stream>();
+                using var memoryStream = new MemoryStream();
+                stream.CopyTo(memoryStream);
+                var compressedBody = memoryStream.ToArray();
+
+                return MessagePackSerializer.ConvertToJson(compressedBody, options: StandardOptionsWithCompressionLz4BlockArray);
+            }
+
             var body = brokeredMessage.GetBody<byte[]>();
-            if (compress)
-               return DecompressAsString(body);
             return Encoding.UTF8.GetString(body);
         }
 
