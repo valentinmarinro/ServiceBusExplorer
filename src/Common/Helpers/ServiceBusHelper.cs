@@ -53,10 +53,14 @@ namespace ServiceBusExplorer
 // ReSharper restore CheckNamespace
 {
     using System.IO.Compression;
+    using System.Text.Json;
     using System.Web.UI.WebControls;
+
     using Abstractions;
 
     using MessagePack;
+
+    using Serilog.Sinks.AddLog.Payload;
 
     using ServiceBusConnectionStringBuilder = Microsoft.ServiceBus.ServiceBusConnectionStringBuilder;
 
@@ -748,7 +752,7 @@ namespace ServiceBusExplorer
 
             if (!TestNamespaceHostIsContactable(serviceBusNamespace))
             {
-                throw new Exception($"Could not contact host in connection string: { serviceBusNamespace.ConnectionString }.");
+                throw new Exception($"Could not contact host in connection string: {serviceBusNamespace.ConnectionString}.");
             }
 
             var func = (() =>
@@ -4958,12 +4962,14 @@ namespace ServiceBusExplorer
 
             if (messagePackLz4Compress)
             {
-                var stream = brokeredMessage.GetBody<Stream>();
-                using var memoryStream = new MemoryStream();
-                stream.CopyTo(memoryStream);
-                var compressedBody = memoryStream.ToArray();
+                var createServiceBusRequestLogRequest = MessagePackSerializer.DeserializeAsync<CreateServiceBusRequestLogRequest>(
+                    brokeredMessage.GetBody<Stream>(),
+                    options: StandardOptionsWithCompressionLz4BlockArray);
 
-                return MessagePackSerializer.ConvertToJson(compressedBody, options: StandardOptionsWithCompressionLz4BlockArray);
+                return System.Text.Json.JsonSerializer.Serialize(createServiceBusRequestLogRequest, new JsonSerializerOptions
+                {
+                    WriteIndented = true
+                });
             }
 
             var body = brokeredMessage.GetBody<byte[]>();
@@ -5389,9 +5395,9 @@ namespace ServiceBusExplorer
             var administrationClient = new ServiceBusAdministrationClient(connectionString);
             var result = new List<QueueProperties>();
 
-            foreach(QueueDescription oldQueueDescription in oldQueueDescriptions)
+            foreach (QueueDescription oldQueueDescription in oldQueueDescriptions)
             {
-               result.Add(await administrationClient.GetQueueAsync(oldQueueDescription.Path).ConfigureAwait(false));
+                result.Add(await administrationClient.GetQueueAsync(oldQueueDescription.Path).ConfigureAwait(false));
             }
 
             return result;
